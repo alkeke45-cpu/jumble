@@ -19,6 +19,7 @@ import { getDefaultRelayUrls } from '@/lib/relay'
 import { isSameAccount } from '@/lib/account'
 import { isAndroid } from '@/lib/platform'
 import client from '@/services/client.service'
+import crossTabSyncService from '@/services/cross-tab-sync.service'
 import customEmojiService from '@/services/custom-emoji.service'
 import dmService from '@/services/dm.service'
 import encryptionKeyService from '@/services/encryption-key.service'
@@ -170,6 +171,11 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   const [userEmojiListEvent, setUserEmojiListEvent] = useState<Event | null>(null)
   const [pinListEvent, setPinListEvent] = useState<Event | null>(null)
   const [notificationsSeenAt, setNotificationsSeenAt] = useState(-1)
+  const notificationsSeenAtRef = useRef(-1)
+  const setNotificationsSeenAtValue = (value: number) => {
+    notificationsSeenAtRef.current = value
+    setNotificationsSeenAt(value)
+  }
   const [isInitialized, setIsInitialized] = useState(false)
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
   const passwordPromiseRef = useRef<{
@@ -219,7 +225,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       setBookmarkListEvent(null)
       setPinListEvent(null)
       setPinnedUsersEvent(null)
-      setNotificationsSeenAt(-1)
+      setNotificationsSeenAtValue(-1)
       if (!account) {
         return
       }
@@ -406,7 +412,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         notificationsSeenAtEvent?.created_at ?? 0,
         storedNotificationsSeenAt
       )
-      setNotificationsSeenAt(notificationsSeenAt)
+      setNotificationsSeenAtValue(notificationsSeenAt)
       storage.setLastReadNotificationTime(account.pubkey, notificationsSeenAt)
 
       client.initUserIndexFromFollowings(account.pubkey, controller.signal)
@@ -911,77 +917,204 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     return setOpenLoginDialog(true)
   }
 
-  const updateRelayListEvent = async (relayListEvent: Event) => {
-    const newRelayList = await client.updateRelayListCache(relayListEvent)
-    setRelayList(getRelayListFromEvent(newRelayList, storage.getFilterOutOnionRelays()))
+  // The `apply*Event` functions below are the single funnel through which the
+  // account's own replaceable events enter this page's state. Each one stores
+  // the event via the "latest event wins" IndexedDB path and returns whether
+  // the given event is the one that ended up applied. The public
+  // `update*Event` functions additionally broadcast the change so that other
+  // open pages of the same account can apply it too (see the cross-tab sync
+  // subscription effect below); synced events are applied through the `apply*`
+  // functions directly so they are never broadcast again.
+  const applyRelayListEvent = async (relayListEvent: Event) => {
+    const newRelayListEvent = await client.updateRelayListCache(relayListEvent)
+    setRelayList(getRelayListFromEvent(newRelayListEvent, storage.getFilterOutOnionRelays()))
+    return newRelayListEvent.id === relayListEvent.id
   }
 
-  const updateProfileEvent = async (profileEvent: Event) => {
+  const updateRelayListEvent = async (relayListEvent: Event) => {
+    if (await applyRelayListEvent(relayListEvent)) {
+      crossTabSyncService.broadcastOwnReplaceableEvent(relayListEvent)
+    }
+  }
+
+  const applyProfileEvent = async (profileEvent: Event) => {
     const newProfileEvent = await indexedDb.putReplaceableEvent(profileEvent)
     setProfileEvent(newProfileEvent)
     setProfile(getProfileFromEvent(newProfileEvent))
+    return newProfileEvent.id === profileEvent.id
   }
 
-  const updateFollowListEvent = async (followListEvent: Event) => {
+  const updateProfileEvent = async (profileEvent: Event) => {
+    if (await applyProfileEvent(profileEvent)) {
+      crossTabSyncService.broadcastOwnReplaceableEvent(profileEvent)
+    }
+  }
+
+  const applyFollowListEvent = async (followListEvent: Event) => {
     const newFollowListEvent = await indexedDb.putReplaceableEvent(followListEvent)
-    if (newFollowListEvent.id !== followListEvent.id) return
+    if (newFollowListEvent.id !== followListEvent.id) return false
 
     setFollowListEvent(newFollowListEvent)
     await client.updateFollowListCache(newFollowListEvent)
+    return true
+  }
+
+  const updateFollowListEvent = async (followListEvent: Event) => {
+    if (await applyFollowListEvent(followListEvent)) {
+      crossTabSyncService.broadcastOwnReplaceableEvent(followListEvent)
+    }
+  }
+
+  const applyMuteListEvent = async (muteListEvent: Event) => {
+    const newMuteListEvent = await indexedDb.putReplaceableEvent(muteListEvent)
+    if (newMuteListEvent.id !== muteListEvent.id) return false
+
+    setMuteListEvent(muteListEvent)
+    return true
   }
 
   const updateMuteListEvent = async (muteListEvent: Event, privateTags: string[][]) => {
-    const newMuteListEvent = await indexedDb.putReplaceableEvent(muteListEvent)
-    if (newMuteListEvent.id !== muteListEvent.id) return
+    if (!(await applyMuteListEvent(muteListEvent))) return
 
     await indexedDb.putDecryptedContent(muteListEvent.id, JSON.stringify(privateTags))
-    setMuteListEvent(muteListEvent)
+    crossTabSyncService.broadcastOwnReplaceableEvent(muteListEvent)
+  }
+
+  const applyBookmarkListEvent = async (bookmarkListEvent: Event) => {
+    const newBookmarkListEvent = await indexedDb.putReplaceableEvent(bookmarkListEvent)
+    if (newBookmarkListEvent.id !== bookmarkListEvent.id) return false
+
+    setBookmarkListEvent(newBookmarkListEvent)
+    return true
   }
 
   const updateBookmarkListEvent = async (bookmarkListEvent: Event) => {
-    const newBookmarkListEvent = await indexedDb.putReplaceableEvent(bookmarkListEvent)
-    if (newBookmarkListEvent.id !== bookmarkListEvent.id) return
+    if (await applyBookmarkListEvent(bookmarkListEvent)) {
+      crossTabSyncService.broadcastOwnReplaceableEvent(bookmarkListEvent)
+    }
+  }
 
-    setBookmarkListEvent(newBookmarkListEvent)
+  const applyFavoriteRelaysEvent = async (favoriteRelaysEvent: Event) => {
+    const newFavoriteRelaysEvent = await indexedDb.putReplaceableEvent(favoriteRelaysEvent)
+    if (newFavoriteRelaysEvent.id !== favoriteRelaysEvent.id) return false
+
+    setFavoriteRelaysEvent(newFavoriteRelaysEvent)
+    return true
   }
 
   const updateFavoriteRelaysEvent = async (favoriteRelaysEvent: Event) => {
-    const newFavoriteRelaysEvent = await indexedDb.putReplaceableEvent(favoriteRelaysEvent)
-    if (newFavoriteRelaysEvent.id !== favoriteRelaysEvent.id) return
+    if (await applyFavoriteRelaysEvent(favoriteRelaysEvent)) {
+      crossTabSyncService.broadcastOwnReplaceableEvent(favoriteRelaysEvent)
+    }
+  }
 
-    setFavoriteRelaysEvent(newFavoriteRelaysEvent)
+  const applyUserEmojiListEvent = async (userEmojiListEvent: Event) => {
+    const newUserEmojiListEvent = await indexedDb.putReplaceableEvent(userEmojiListEvent)
+    if (newUserEmojiListEvent.id !== userEmojiListEvent.id) return false
+
+    setUserEmojiListEvent(newUserEmojiListEvent)
+    return true
   }
 
   const updateUserEmojiListEvent = async (userEmojiListEvent: Event) => {
-    const newUserEmojiListEvent = await indexedDb.putReplaceableEvent(userEmojiListEvent)
-    if (newUserEmojiListEvent.id !== userEmojiListEvent.id) return
+    if (await applyUserEmojiListEvent(userEmojiListEvent)) {
+      crossTabSyncService.broadcastOwnReplaceableEvent(userEmojiListEvent)
+    }
+  }
 
-    setUserEmojiListEvent(newUserEmojiListEvent)
+  const applyPinListEvent = async (pinListEvent: Event) => {
+    const newPinListEvent = await indexedDb.putReplaceableEvent(pinListEvent)
+    if (newPinListEvent.id !== pinListEvent.id) return false
+
+    setPinListEvent(newPinListEvent)
+    return true
   }
 
   const updatePinListEvent = async (pinListEvent: Event) => {
-    const newPinListEvent = await indexedDb.putReplaceableEvent(pinListEvent)
-    if (newPinListEvent.id !== pinListEvent.id) return
+    if (await applyPinListEvent(pinListEvent)) {
+      crossTabSyncService.broadcastOwnReplaceableEvent(pinListEvent)
+    }
+  }
 
-    setPinListEvent(newPinListEvent)
+  const applyPinnedUsersEvent = async (pinnedUsersEvent: Event) => {
+    const newPinnedUsersEvent = await indexedDb.putReplaceableEvent(pinnedUsersEvent)
+    if (newPinnedUsersEvent.id !== pinnedUsersEvent.id) return false
+
+    setPinnedUsersEvent(newPinnedUsersEvent)
+    return true
   }
 
   const updatePinnedUsersEvent = async (pinnedUsersEvent: Event, privateTags?: string[][]) => {
-    const newPinnedUsersEvent = await indexedDb.putReplaceableEvent(pinnedUsersEvent)
-    if (newPinnedUsersEvent.id !== pinnedUsersEvent.id) return
+    if (!(await applyPinnedUsersEvent(pinnedUsersEvent))) return
 
     if (privateTags) {
       await indexedDb.putDecryptedContent(pinnedUsersEvent.id, JSON.stringify(privateTags))
     }
-    setPinnedUsersEvent(newPinnedUsersEvent)
+    crossTabSyncService.broadcastOwnReplaceableEvent(pinnedUsersEvent)
   }
+
+  const applyNotificationsSeenAt = (pubkey: string, seenAt: number) => {
+    if (currentAccount.current?.pubkey !== pubkey) return
+    if (seenAt <= notificationsSeenAtRef.current) return
+
+    storage.setLastReadNotificationTime(pubkey, seenAt)
+    setNotificationsSeenAtValue(seenAt)
+  }
+
+  // Apply changes made in other open pages of this account (another tab or
+  // window) so this page stays up to date without a manual refresh — e.g.
+  // following someone in one page immediately flips the follow button in the
+  // other page. The apply functions only use stable state setters, services
+  // and refs, so subscribing once with the first-render closures is safe.
+  useEffect(() => {
+    return crossTabSyncService.subscribe((message) => {
+      if (message.type === 'notifications-seen-at') {
+        applyNotificationsSeenAt(message.pubkey, message.seenAt)
+        return
+      }
+
+      const event = message.event
+      if (!currentAccount.current || event.pubkey !== currentAccount.current.pubkey) return
+
+      switch (event.kind) {
+        case kinds.Metadata:
+          void applyProfileEvent(event)
+          break
+        case kinds.RelayList:
+          void applyRelayListEvent(event)
+          break
+        case kinds.Contacts:
+          void applyFollowListEvent(event)
+          break
+        case kinds.Mutelist:
+          void applyMuteListEvent(event)
+          break
+        case kinds.BookmarkList:
+          void applyBookmarkListEvent(event)
+          break
+        case ExtendedKind.FAVORITE_RELAYS:
+          void applyFavoriteRelaysEvent(event)
+          break
+        case kinds.UserEmojiList:
+          void applyUserEmojiListEvent(event)
+          break
+        case kinds.Pinlist:
+          void applyPinListEvent(event)
+          break
+        case ExtendedKind.PINNED_USERS:
+          void applyPinnedUsersEvent(event)
+          break
+      }
+    })
+  }, [])
 
   const updateNotificationsSeenAt = async (skipPublish = false) => {
     if (!account) return
 
     const now = dayjs().unix()
     storage.setLastReadNotificationTime(account.pubkey, now)
-    setNotificationsSeenAt(now)
+    setNotificationsSeenAtValue(now)
+    crossTabSyncService.broadcastNotificationsSeenAt(account.pubkey, now)
 
     // Prevent too frequent requests for signing seen notifications events
     const lastPublishedSeenNotificationsAtEventAt =
