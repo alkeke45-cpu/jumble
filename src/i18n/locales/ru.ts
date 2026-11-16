@@ -1316,6 +1316,7 @@ export default {
     'Login with Android signer': 'Войти через приложение подписи Android',
     'Profile followed by': 'Читают',
     'People you follow who also follow this user.':
-      'Люди, на которых вы подписаны и которые также подписаны на этого пользователя.'
+      'Люди, на которых вы подписаны и которые также подписаны на этого пользователя.',
+    'Hide followed users': 'Скрыть пользователей из подписок'
   }
 }

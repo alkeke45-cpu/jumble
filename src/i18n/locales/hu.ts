@@ -1312,6 +1312,7 @@ export default {
     'Login with Android signer': 'Bejelentkezés Android-aláíróval',
     'Profile followed by': 'Követői',
     'People you follow who also follow this user.':
-      'Az általad követett emberek, akik ezt a felhasználót is követik.'
+      'Az általad követett emberek, akik ezt a felhasználót is követik.',
+    'Hide followed users': 'Követett felhasználók elrejtése'
   }
 }

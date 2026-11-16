@@ -1308,6 +1308,7 @@ export default {
     'Login with Android signer': 'Android署名アプリでログイン',
     'Profile followed by': 'フォロワー',
     'People you follow who also follow this user.':
-      'あなたがフォローしている人のうち、このユーザーもフォローしている人です。'
+      'あなたがフォローしている人のうち、このユーザーもフォローしている人です。',
+    'Hide followed users': 'フォロー中のユーザーを非表示にする'
   }
 }

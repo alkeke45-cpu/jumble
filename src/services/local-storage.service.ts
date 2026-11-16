@@ -95,6 +95,7 @@ class LocalStorageService {
   private mutedWords: string[] = []
   private minTrustScore: number = 0
   private minTrustScoreMap: Record<string, number> = {}
+  private hideFollowedMap: Record<string, boolean> = {}
   private hideIndirectNotifications: boolean = false
   private encryptionKeyPrivkeyMap: Record<string, string> = {}
   // Rotated-out encryption keys kept around (per account) so messages still
@@ -466,6 +467,18 @@ class LocalStorageService {
         const map = JSON.parse(minTrustScoreMapStr)
         if (typeof map === 'object' && map !== null) {
           this.minTrustScoreMap = map
+        }
+      } catch {
+        // Invalid JSON, use default
+      }
+    }
+
+    const hideFollowedMapStr = window.localStorage.getItem(StorageKey.HIDE_FOLLOWED_MAP)
+    if (hideFollowedMapStr) {
+      try {
+        const map = JSON.parse(hideFollowedMapStr)
+        if (typeof map === 'object' && map !== null) {
+          this.hideFollowedMap = map
         }
       } catch {
         // Invalid JSON, use default
@@ -1413,6 +1426,19 @@ class LocalStorageService {
   setMinTrustScoreMap(map: Record<string, number>) {
     this.minTrustScoreMap = map
     window.localStorage.setItem(StorageKey.MIN_TRUST_SCORE_MAP, JSON.stringify(map))
+  }
+
+  getHideFollowedMap() {
+    return this.hideFollowedMap
+  }
+
+  getHideFollowed(feedId: string): boolean {
+    return this.hideFollowedMap[feedId] ?? false
+  }
+
+  setHideFollowed(feedId: string, hide: boolean) {
+    this.hideFollowedMap = { ...this.hideFollowedMap, [feedId]: hide }
+    window.localStorage.setItem(StorageKey.HIDE_FOLLOWED_MAP, JSON.stringify(this.hideFollowedMap))
   }
 
   getDefaultRelayUrls() {

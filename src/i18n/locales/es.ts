@@ -1318,6 +1318,7 @@ export default {
     'Login with Android signer': 'Iniciar sesión con un firmante de Android',
     'Profile followed by': 'Seguido por',
     'People you follow who also follow this user.':
-      'Personas a las que sigues que también siguen a este usuario.'
+      'Personas a las que sigues que también siguen a este usuario.',
+    'Hide followed users': 'Ocultar usuarios seguidos'
   }
 }

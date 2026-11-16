@@ -1324,6 +1324,7 @@ export default {
     'Login with Android signer': 'Zaloguj się przez aplikację podpisującą Android',
     'Profile followed by': 'Obserwowany przez',
     'People you follow who also follow this user.':
-      'Osoby, które obserwujesz i które również obserwują tego użytkownika.'
+      'Osoby, które obserwujesz i które również obserwują tego użytkownika.',
+    'Hide followed users': 'Ukryj obserwowanych użytkowników'
   }
 }

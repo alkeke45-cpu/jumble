@@ -36,6 +36,7 @@ export default function RelaysFeed() {
       subRequests={[{ urls: relayUrls, filter: {} }]}
       areAlgoRelays={areAlgoRelays}
       showRelayCloseReason
+      showHideFollowedToggle
     />
   )
 }
